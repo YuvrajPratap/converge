@@ -1,0 +1,317 @@
+The focus of the tutorial will be on how we can generate JWTs on the Laravel side, obtain them on the front-end and then send them along with every request to the API.
+We’ll be using a couple open source packages for this application: jwt-auth for creating JWTs on the Laravel side and Satellizer for handling the AngularJS authentication logic.
+
+		laravel new jot-bot
+		php artisan key:generate
+		cd jot-bot
+		php artisan serve
+
+If everything is working you should see the Laravel welcome page.
+
+Now that the core Laravel files are installed, let’s install jwt-auth. Open composer.json and update the require object to include jwt-auth:
+
+		// composer.json
+		"require": {
+		       "php": ">=5.5.9",
+		       "laravel/framework": "5.1.*",
+		       "tymon/jwt-auth": "0.5.*"
+		   },
+   
+Next, let’s bring this package in by running an update. From the command line:
+
+		composer update
+
+We’ll now need to update the providers array in config/app.php with the jwt-auth provider. Open up config/app.php, find the providers array located on line 111 and add this to it:
+
+		Tymon\JWTAuth\Providers\JWTAuthServiceProvider::class
+
+We should also add in the jwt-auth facades which we can do in config/app.php. Find the aliases array and add these facades to it:
+
+		'JWTAuth'   => Tymon\JWTAuth\Facades\JWTAuth::class,
+		'JWTFactory' => Tymon\JWTAuth\Facades\JWTFactory::class
+
+
+We also need to publish the assets for this package. From the command line:
+
+		php artisan vendor:publish --provider="Tymon\JWTAuth\Providers\JWTAuthServiceProvider"
+
+After you run this command you will see a new file in the config folder called jwt.php. This file contains settings for jwt-auth, one of which we need to change right away. We need to generate a secret key which we can do from the command line:
+
+		php artisan jwt:generate
+
+We’ve got everything installed on the Laravel side—now let’s take care of the AngularJS dependencies.
+
+There are a number of things that need to happen on the front-end so that we can send a JWT with every request to the Laravel API after our user is authenticated. Namely, we need to keep the JWT in local storage once we retrieve it from the API and also need to add a header to every subsequent request that contains the token. We could write the appropriate JavaScript to accomplish this on our own, but a package has already been created that does a great job of it. Instead of spending extra effort, let’s make use of Satellizer.
+
+Let’s use npm to install our front-end dependencies. From the command line:
+
+		cd public
+		sudo chmod 777 -R /home/yuvraj/tmp
+		npm install angular satellizer angular-ui-router bootstrap
+
+Creating Some Test Data
+
+Laravel comes with a migration for a users table out of the box and this is the only one we’ll need for the tutorial. Let’s run the migrations so that this table gets created in the database and then seed it with some test data. From the command line:
+
+		php artisan migrate
+
+For seeding, we’ll put the array of users and the logic to insert them into the database right within DatabaseSeeder.php, but you can also create a separate seeder file and call it from that file if you like.
+
+		// database/seeds/DatabaseSeeder.php
+		<?php
+		use Illuminate\Database\Seeder;
+		use Illuminate\Database\Eloquent\Model;
+		use App\User;
+		class DatabaseSeeder extends Seeder
+		{
+		    public function run()
+		    {
+		        Model::unguard();
+		        DB::table('users')->delete();
+		        $users = array(
+		                ['name' => 'Ryan Chenkie', 'email' => 'ryanchenkie@gmail.com', 'password' => Hash::make('secret')],
+		                ['name' => 'Chris Sevilleja', 'email' => 'chris@scotch.io', 'password' => Hash::make('secret')],
+		                ['name' => 'Holly Lloyd', 'email' => 'holly@scotch.io', 'password' => Hash::make('secret')],
+		                ['name' => 'Adnan Kukic', 'email' => 'adnan@scotch.io', 'password' => Hash::make('secret')],
+		        );
+		        // Loop through each user above and create the record for them in the database
+		        foreach ($users as $user)
+		        {
+		            User::create($user);
+		        }
+		        Model::reguard();
+		    }
+		}
+
+In this seeder we are creating an array of users and then looping through them to add them to the database. This file relies on us using App\User which is the User model that also ships with Laravel. As we loop through the users we call create on each to add that record to the database. With this in place, we just need to run the seeder.
+
+		php artisan db:seed
+
+To generate a new seeder type :
+
+		php artisan make:seeder UsersTableSeeder
+
+A seeder class only contains one method by default: run. This method is called when the db:seed Artisan command is executed.
+
+Within the DatabaseSeeder class, you may use the call method to execute additional seed classes. Using the call method allows you to break up your database seeding into multiple files so that no single seeder class becomes overwhelmingly large. Simply pass the name of the seeder class you wish to run:
+
+		/**
+		 * Run the database seeds.
+		 *
+		 * @return void
+		 */
+		public function run()
+		{
+		    Model::unguard();
+
+		    $this->call(UsersTableSeeder::class);
+		    $this->call(PostsTableSeeder::class);
+		    $this->call(CommentsTableSeeder::class);
+
+		    Model::reguard();
+		}
+
+By default, the db:seed command runs the DatabaseSeeder class, which may be used to call other seed classes. However, you may use the --class option to specify a specific seeder class to run individually:
+
+		php artisan db:seed
+
+		php artisan db:seed --class=UsersTableSeeder
+
+You may also seed your database using the migrate:refresh command, which will also rollback and re-run all of your migrations. This command is useful for completely re-building your database:
+
+		php artisan migrate:refresh --seed
+
+Now we have to create the API Routes
+Once we’ve confirmed that the database has been seeded properly, let’s get the API setup in routes.php.
+
+		// app/Http/routes.php
+		<?php
+		Route::get('/', function () {
+		    return view('index');
+		});
+		Route::group(['prefix' => 'api'], function()
+		{
+		    Route::resource('authenticate', 'AuthenticateController', ['only' => ['index']]);
+		    Route::post('authenticate', 'AuthenticateController@authenticate');
+		});
+
+We’ve done a couple things here—first, we’ve changed the starting route to load a view that we’ll create later called index instead of welcome. Next, we’ve created a route group that is prefixed with api and that currently serves a resource called authenticate. We only really want the index method of this resource controller which we indicate with the third argument. We’ll also need a custom method called authenticate on this controller which handles generating and returning a JWT.
+
+Now we need to create a resource controller called AuthenticateController. From the command line:
+
+		php artisan make:controller AuthenticateController
+
+If that runs successfully you should now see AuthenticateController.php in app/Http/Controllers.
+We’re going to need to use some pieces of the JWTAuth package in this controller.
+
+		<?php
+		namespace App\Http\Controllers;
+		use Illuminate\Http\Request;
+		use App\Http\Requests;
+		use App\Http\Controllers\Controller;
+		use JWTAuth;
+		use Tymon\JWTAuth\Exceptions\JWTException;
+		class AuthenticateController extends Controller
+		{
+		    public function index()
+		    {
+		        // TODO: show users
+		    }    
+		    public function authenticate(Request $request)
+		    {
+		        $credentials = $request->only('email', 'password');
+		        try {
+		            // verify the credentials and create a token for the user
+		            if (! $token = JWTAuth::attempt($credentials)) {
+		                return response()->json(['error' => 'invalid_credentials'], 401);
+		            }
+		        } catch (JWTException $e) {
+		            // something went wrong
+		            return response()->json(['error' => 'could_not_create_token'], 500);
+		        }
+		        // if no errors are encountered we can return a JWT
+		        return response()->json(compact('token'));
+		    }
+		}
+
+The try block in the authenticate method attempts to produce a token using the JWTAuth facade with the user’s credentials. If something goes wrong with that, the method will return a 401 and say the credentials are invalid. In other cases where an exception is thrown, it will return a 500 indicating an internal server error and saying that something went wrong. If we are able to get past that then we can return a token. Returning it with compact('token') puts the object on a key called token which will come in handy when we read it with Satellizer.
+
+We’ll use this controller to show data for all users as well, but let’s first test out the API.
+
+By default, Laravel has CSRF token verification turned on, but since we’re using JWTs in a stateless manner now, we don’t really need CSRF tokens. We can turn this default behavior off by commenting out the VerifyCsrfToken middleware in Kernel.php.
+
+We’re also eventually going to need to use the middleware that jwt-auth provides. We can set that up in the routeMiddleware array in Kernel.php as well.
+
+		// app/Http/Kernel.php
+		...
+		namespace App\Http;
+
+		use Illuminate\Foundation\Http\Kernel as HttpKernel;
+
+		class Kernel extends HttpKernel
+		{
+
+		    protected $middleware = [
+		        \Illuminate\Foundation\Http\Middleware\CheckForMaintenanceMode::class,
+		        \App\Http\Middleware\EncryptCookies::class,
+		        \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+		        \Illuminate\Session\Middleware\StartSession::class,
+		        \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+		        // \App\Http\Middleware\VerifyCsrfToken::class,
+		    ];
+
+		    protected $routeMiddleware = [
+		        'auth' => \App\Http\Middleware\Authenticate::class,
+		        'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
+		        'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
+		        'jwt.auth' => \Tymon\JWTAuth\Middleware\GetUserFromToken::class,
+		        'jwt.refresh' => \Tymon\JWTAuth\Middleware\RefreshToken::class
+		    ];
+		}
+
+Now that VerifyCsrfToken is turned off, let’s check the API with Postman.
+
+If we send a POST request to localhost:8000/api/authenticate with the credentials for one of our users as URL parameters, we can see that we get a token returned.
+
+We’re going to return the data for all of the users in the database, but only if there is a token passed along with the request. We can make this happen by protecting our API with the middleware that comes with jwt-auth.
+
+Let’s add some logic to show all of the users if the token sent along with the request is valid.
+
+		// app/Http/Controllers/AuthenticateController.php
+		class AuthenticateController extends Controller
+		{
+			public function __construct()
+			   {
+			       // Apply the jwt.auth middleware to all methods in this controller
+			       // except for the authenticate method. We don't want to prevent
+			       // the user from retrieving their token if they don't already have it
+			       $this->middleware('jwt.auth', ['except' => ['authenticate']]);
+			   }
+
+			public function index()
+			{
+			    // Retrieve all the users in the database and return them
+			    $users = User::all();
+			    return $users;
+			}
+			...
+
+Here we are saying we want the jwt-auth middleware to be applied to everything in the controller except the authenticate method (we don’t want to block the user from retrieving their token) and we have the index method returning a list of all users.
+
+If we try making a GET request to localhost:8000/api/authenticate without a JWT in as a header or URL parameter, we get a 400 error that says no token was provided.
+
+The jwt-auth middleware checks for the presence of the token and let’s the request through if it is there and is valid, but rejects the request if it is not.
+
+Just to prove that the middleware is doing its job, let’s try removing a character from the token to invalidate it. We can see that the call we then make to the index method gets denied and we can’t see the users list.
+
+Setting up The Front-End
+
+Now that the API is setup and the middleware is functioning properly we can create the front-end of our app.
+
+We’ll need to setup our initial view in an index.php file because this is what our Laravel routes.php file is setup to return when the user hits the main / route.
+
+		<!-- resources/views/index.php -->
+		<!doctype html>
+		<html>
+		    <head>
+		        <meta charset="utf-8">
+		        <title>Angular-Laravel Authentication</title>
+		        <link rel="stylesheet" href="node_modules/bootstrap/dist/css/bootstrap.css">
+		    </head>
+		    <body ng-app="authApp">
+		        <div class="container">
+		            <div ui-view></div>
+		        </div>        
+		    </body>
+		    <!-- Application Dependencies -->
+		    <script src="node_modules/angular/angular.js"></script>
+		    <script src="node_modules/angular-ui-router/build/angular-ui-router.js"></script>
+		    <script src="node_modules/satellizer/satellizer.js"></script>
+
+		    <!-- Application Scripts -->
+		    <script src="scripts/app.js"></script>
+		    <script src="scripts/authController.js"></script>
+		    <script src="scripts/userController.js"></script>
+		</html>
+
+In the index.php file we have included all of the application dependency scripts that we installed earlier and have also put references in for the application scripts that we’ve yet to create. Since we’re using UI Router we are serving a ui-view in the middle of the page which is what will be used to handle our different states.
+
+Next, let’s create our main app.js file.
+
+		// public/scripts/app.js
+
+		(function() {
+
+		    'use strict';
+
+		    angular
+		        .module('authApp', ['ui.router', 'satellizer'])
+		        .config(function($stateProvider, $urlRouterProvider, $authProvider) {
+
+		            // Satellizer configuration that specifies which API
+		            // route the JWT should be retrieved from
+		            $authProvider.loginUrl = '/api/authenticate';
+
+		            // Redirect to the auth state if any other states
+		            // are requested other than users
+		            $urlRouterProvider.otherwise('/auth');
+		            
+		            $stateProvider
+		                .state('auth', {
+		                    url: '/auth',
+		                    templateUrl: '../views/authView.html',
+		                    controller: 'AuthController as auth'
+		                })
+		                .state('users', {
+		                    url: '/users',
+		                    templateUrl: '../views/userView.html',
+		                    controller: 'UserController as user'
+		                });
+		        });
+		})();
+
+Here we are loading the ui.router and satellizer modules and setting up some configuration for them. Satellizer gives us an $authProvider which can be used to configure its settings. In particular, we want to specify that when using Satellizer to login, the HTTP requests that get made to retrieve the JWT from the API should go to api/authenticate.
+
+We also use $stateProvider to setup configuration for the two states that we’ll be using: auth and users.
+
+We’ll now need to create views for the auth and users states and controllers to handle their behavior.

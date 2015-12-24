@@ -1,0 +1,155 @@
+1. Step One — Install Apache
+--------------------------
+sudo apt-get update
+sudo apt-get install apache2
+
+
+
+2. Step Two — Install MySQL
+-------------------------
+sudo apt-get install mysql-server libapache2-mod-auth-mysql php5-mysql
+<root>
+
+
+
+3. Step Three — Install PHP
+-----------------------
+sudo apt-get install php5 libapache2-mod-php5 php5-mcrypt
+
+
+
+4. Step Four — RESULTS: See PHP on your Server
+------------------------------------------
+sudo nano /var/www/html/info.php
+
+<?php
+phpinfo();
+?>
+
+sudo service apache2 restart
+
+
+
+5. Step Five — Install Composer
+--------------------
+sudo chmod 777 -R /var/www
+curl -sS https://getcomposer.org/installer | php
+sudo mv composer.phar /usr/local/bin/composer
+
+
+
+6. Step Six — Install Laravel
+--------------------
+composer global require "laravel/installer"
+cd /var/www/
+export PATH=~/.composer/vendor/bin:$PATH
+laravel new converge
+cd converge
+php artisan serve
+
+
+7. Step Seven — Edit in .env
+-------------------------------
+DB_HOST=localhost
+DB_DATABASE=converge
+DB_USERNAME=converge
+DB_PASSWORD=converge123@
+
+
+8. Step Eight — Install phpMyAdmin
+-------------------------------
+sudo apt-get update
+sudo apt-get install phpmyadmin
+sudo php5enmod mcrypt
+
+
+by adding :
+	ServerName localhost
+	Include /etc/phpmyadmin/apache.conf
+to the /etc/apache2/apache2.conf file 
+
+
+sudo service apache2 restart
+http://domain_name_or_IP/phpmyadmin
+
+
+9. Step Nine — Localhost DB User Setup
+---------------------------
+Goto localhost/phpmyadmin
+Click Users Tab
+Click "Add User"
+User name: converge
+Host: (Select Local) localhost
+Password: converge123@
+Re-type: converge123@
+Select : Create database with same name and grant all privileges
+Select : Grant all privileges on wildcard name (username\_%)
+Select : Global privileges - Check All
+
+
+10. Step Ten — Migration
+-----------------
+php artisan migrate
+-- php artisan down 		//	Application is now in maintenance mode.
+-- php artisan up   		//  Application is now live
+-- php artisan key:generate // Application key
+
+
+11. Step Eleven — Install Git in Terminal
+--------------------------------
+sudo apt-get install git
+
+
+
+12. Step Twelve — Git createRepository/push/pull/clone
+-------------------------------
+
+createRepository :
+-----------------
+cd /var/www/converge
+git init
+git add .
+git config --global user.email "yuvraj.cse@gmail.com"
+git commit -m "first commit"
+git remote add origin https://github.com/YuvrajPratap/converge.git
+git push -u origin master
+'OR'
+git remote add origin https://github.com/YuvrajPratap/converge.git
+git push -u origin master
+
+Push :
+-------
+cd /var/www/converge
+git init
+git add .
+git commit -m "12th commit"
+git push -u origin master
+Username for 'https://github.com': YuvrajPratap
+Password for 'https://YuvrajPratap@github.com': 
+
+Pull :
+-------
+cd /var/www/converge
+git init
+git pull origin
+
+
+Clone :
+-------
+cd /var/www/converge
+git init
+git clone https://github.com/YuvrajPratap/converge.git
+
+
+
+------------- END ------------
+
+
+
+Create Database
+-----------------
+mysql -u root -p
+SHOW DATABASES;
+CREATE DATABASE converge;
+CREATE USER 'converge'@'localhost' IDENTIFIED BY 'converge123@';
+GRANT ALL PRIVILEGES ON converge.* TO 'converge'@'localhost';
